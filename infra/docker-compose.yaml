@@ -1,5 +1,3 @@
-#version: "3.9"
-
 services:
   # --------------------------
   # Storage: MinIO (S3-compatible)
@@ -90,11 +88,15 @@ services:
       - minio
       - postgres
 
+
   prefect_agent:
-    image: prefecthq/prefect:2-latest
+    build:
+      context: ..
+      dockerfile: docker/prefect/Dockerfile
     environment:
       PREFECT_API_URL: http://prefect_server:4200/api
-      # Allow flows to access repo source and data
+      PYTHONPATH: /app/src
+      MLFLOW_TRACKING_URI: http://mlflow:5000
     volumes:
       - ../src:/app/src:rw
       - ../prefect_flows:/app/prefect_flows:rw
