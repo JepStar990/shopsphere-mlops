@@ -111,6 +111,12 @@ services:
       PREFECT_API_URL: http://prefect_server:4200/api
       PYTHONPATH: /app
       MLFLOW_TRACKING_URI: http://mlflow:5000
+      # ---- S3/MinIO for MLflow artifacts ----
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_S3_ADDRESSING_STYLE: PATH
       PREFECT_LOGGING_LEVEL: DEBUG
     volumes:
       - ../src:/app/src:rw
@@ -118,7 +124,6 @@ services:
       - ../data:/app/data:rw
       - ../params:/app/params:rw
     working_dir: /app
-    # Create the pool if missing, then start the worker on that pool with explicit type
     command: ["/bin/sh", "-lc", "prefect work-pool create default -t process || true && prefect worker start --pool default --type process"]
     depends_on:
       - prefect_server
@@ -176,6 +181,17 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+
+  monitor_exporter:
+    build:
+      context: ..
+      dockerfile: docker/monitor/Dockerfile
+    ports:
+      - "9100:9100"
+    volumes:
+      - ../data:/app/data:rw
     depends_on:
       - prometheus
 
