@@ -1,18 +1,17 @@
-# docker/prefect/Dockerfile
 FROM python:3.11-slim
 
-# System deps (optional, useful for building some wheels)
-RUN apt-get update && apt-get install -y build-essential && rm -rf /var/lib/apt/lists/*
+# System deps
+RUN apt-get update && apt-get install -y build-essential git && rm -rf /var/lib/apt/lists/*
 
-# Python deps (for flows)
+# Pin Prefect to 2.x (to match server) and MLflow to match server (2.16)
 RUN pip install --no-cache-dir \
-    prefect \
+    "prefect==2.20.18" \
+    "mlflow==2.16.0" \
     dvc[s3] \
     pandas \
     scikit-learn \
     xgboost \
     lightgbm \
-    mlflow \
     boto3 \
     minio \
     pyarrow \
@@ -21,7 +20,4 @@ RUN pip install --no-cache-dir \
     python-dotenv
 
 WORKDIR /app
-
-# We mount src/ and prefect_flows/ at runtime via docker-compose, so no COPY is needed here
-# The agent command is provided in docker-compose.yml
 

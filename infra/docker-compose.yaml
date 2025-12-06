@@ -73,8 +73,9 @@ services:
       - minio-init
       - postgres
 
+
   # --------------------------
-  # Prefect: Server & Agent
+  # Prefect: Server & Worker (Prefect 2.x)
   # --------------------------
   prefect_server:
     image: prefecthq/prefect:2-latest
@@ -88,24 +89,40 @@ services:
       - minio
       - postgres
 
+  # One-time init to create the default work pool for the worker
+  prefect_init:
+    image: prefecthq/prefect:2-latest
+    environment:
+      PREFECT_API_URL: http://prefect_server:4200/api
+    depends_on:
+      - prefect_server
+    entrypoint: /bin/sh
+    command: >
+      -c "
+        prefect work-pool ls | grep -q '^default ' ||
+        prefect work-pool create default -t process
+      "
 
-  prefect_agent:
+  prefect_worker:
     build:
       context: ..
       dockerfile: docker/prefect/Dockerfile
     environment:
       PREFECT_API_URL: http://prefect_server:4200/api
-      PYTHONPATH: /app/src
+      PYTHONPATH: /app
       MLFLOW_TRACKING_URI: http://mlflow:5000
+      PREFECT_LOGGING_LEVEL: DEBUG
     volumes:
       - ../src:/app/src:rw
       - ../prefect_flows:/app/prefect_flows:rw
       - ../data:/app/data:rw
       - ../params:/app/params:rw
     working_dir: /app
-    command: ["prefect", "agent", "start", "-q", "default"]
+    # Create the pool if missing, then start the worker on that pool with explicit type
+    command: ["/bin/sh", "-lc", "prefect work-pool create default -t process || true && prefect worker start --pool default --type process"]
     depends_on:
       - prefect_server
+
 
   # --------------------------
   # FastAPI Scoring API
