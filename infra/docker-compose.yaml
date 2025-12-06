@@ -1,0 +1,166 @@
+#version: "3.9"
+
+services:
+  # --------------------------
+  # Storage: MinIO (S3-compatible)
+  # --------------------------
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"  # S3 API
+      - "9001:9001"  # Web console
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    volumes:
+      - minio_data:/data
+
+  # Create buckets for MLflow artifacts & data zones
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+    entrypoint: /bin/sh
+    command: >
+      -c "
+        mc config host add local http://minio:9000 ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} --api S3v4 &&
+        mc mb -p local/mlflow || true &&
+        mc mb -p local/bronze || true &&
+        mc mb -p local/silver || true &&
+        mc mb -p local/gold || true &&
+        mc anonymous set public local/mlflow
+      "
+
+  # --------------------------
+  # Database: Postgres
+  # --------------------------
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${PGUSER}
+      POSTGRES_PASSWORD: ${PGPASSWORD}
+      POSTGRES_DB: mlops
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PGUSER} -d mlops"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # --------------------------
+  # MLflow Tracking & Registry
+  # --------------------------
+  mlflow:
+    build:
+      context: ..
+      dockerfile: docker/mlflow/Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
+      BACKEND_STORE_URI: postgresql+psycopg2://${PGUSER}:${PGPASSWORD}@postgres:5432/mlops
+      ARTIFACT_ROOT: s3://mlflow/
+    depends_on:
+      - minio
+      - minio-init
+      - postgres
+
+  # --------------------------
+  # Prefect: Server & Agent
+  # --------------------------
+  prefect_server:
+    image: prefecthq/prefect:2-latest
+    ports:
+      - "4200:4200"
+    environment:
+      PREFECT_API_URL: http://prefect_server:4200/api
+    command: ["prefect", "server", "start", "--host", "0.0.0.0", "--port", "4200"]
+    depends_on:
+      - mlflow
+      - minio
+      - postgres
+
+  prefect_agent:
+    image: prefecthq/prefect:2-latest
+    environment:
+      PREFECT_API_URL: http://prefect_server:4200/api
+      # Allow flows to access repo source and data
+    volumes:
+      - ../src:/app/src:rw
+      - ../prefect_flows:/app/prefect_flows:rw
+      - ../data:/app/data:rw
+      - ../params:/app/params:rw
+    working_dir: /app
+    command: ["prefect", "agent", "start", "-q", "default"]
+    depends_on:
+      - prefect_server
+
+  # --------------------------
+  # FastAPI Scoring API
+  # --------------------------
+  api:
+    build:
+      context: ..
+      dockerfile: docker/api/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      S3_ENDPOINT: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
+    volumes:
+      - ../src:/app/src:rw
+    depends_on:
+      - mlflow
+      - minio
+
+  # --------------------------
+  # Evidently (placeholder)
+  # --------------------------
+  evidently:
+    build:
+      context: ..
+      dockerfile: docker/evidently/Dockerfile
+    depends_on:
+      - minio
+
+  # --------------------------
+  # Monitoring: Prometheus & Grafana
+  # --------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+
+volumes:
+  minio_data:
+  pg_data:
+  grafana_data:

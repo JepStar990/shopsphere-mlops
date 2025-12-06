@@ -1,0 +1,21 @@
+# API + orchestration + tracking
+fastapi
+uvicorn
+mlflow
+prefect
+
+# Data & ML
+pandas
+scikit-learn
+xgboost
+lightgbm
+boto3
+minio
+pyarrow
+
+# Monitoring
+prometheus-client
+evidently
+
+# Utilities
+python-dotenv
