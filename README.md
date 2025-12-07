@@ -1,7 +1,5 @@
 ***
 
-# README.md
-
 # ShopSphere MLOps
 
 End‑to‑end MLOps stack for retail analytics.  
