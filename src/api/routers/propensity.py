@@ -1,8 +1,22 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
-import time
+import os, pandas as pd
+import mlflow.pyfunc as pyfunc
+import mlflow
 
 router = APIRouter()
+_model = None
+
+@router.on_event("startup")
+def load_model():
+    global _model
+    try:
+        mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI","http://mlflow:5000"))
+        _model = pyfunc.load_model("models:/campaign_model/Production")
+        print("Loaded campaign_model")
+    except Exception as e:
+        print(f"Could not load campaign_model: {e}")
+        _model = None
 
 class PropensityRequest(BaseModel):
     customer_id: str
@@ -10,13 +24,14 @@ class PropensityRequest(BaseModel):
 
 @router.post("/")
 def score(payload: PropensityRequest):
-    start = time.time()
-    prob = 0.5  # Placeholder
-    latency_ms = (time.time() - start) * 1000
+    X = pd.DataFrame([payload.features])
     try:
-        from api.main import requests_total, score_latency_g
-        requests_total.labels(endpoint="/score/propensity").inc()
-        score_latency_g.labels(endpoint="/score/propensity").set(latency_ms)
-    except Exception:
-        pass
-    return {"customer_id": payload.customer_id, "prob_response": prob}
+        if _model is not None:
+            prob = float(_model.predict_proba(X)[0,1]) if hasattr(_model, "predict_proba") else float(_model.predict(X)[0])
+            ok, err = True, None
+        else:
+            prob, ok, err = 0.5, False, "model_not_loaded"
+    except Exception as ex:
+        prob, ok, err = 0.5, False, str(ex)
+    return {"customer_id": payload.customer_id, "prob_response": prob, "ok": ok, "error": err}
+
