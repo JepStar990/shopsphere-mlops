@@ -2,7 +2,7 @@ from prefect import flow, task
 import pandas as pd
 from pathlib import Path
 from src.common.features import build_user_item_matrix
-from src.recommender.train_als import train_implicit_als
+from src.recommender.train import train_cooccurrence
 
 BRONZE = Path("/app/data/bronze")
 GOLD = Path("/app/data/gold")
@@ -17,9 +17,9 @@ def build_ui():
 
 @task
 def train():
-    train_implicit_als(str(UI), factors=64, iterations=20)
+    train_cooccurrence(str(UI))
 
-@flow(name="recommender_als_train")
+@flow(name="recommender_train")
 def run():
     build_ui()
     train()
