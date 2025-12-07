@@ -1,27 +1,31 @@
-from evidently.report import Report
-from evidently.metrics import DataDriftPreset
+# src/monitoring/drift_report.py
+import json
 import pandas as pd
+from evidently import Report
+from evidently.presets import DataDriftPreset
 
 def build_drift_report(reference_df: pd.DataFrame, current_df: pd.DataFrame, out_html: str) -> float:
     """
-    Builds an Evidently DataDrift report, saves HTML, and returns a drift score in [0,1],
-    defined as share of drifted columns according to Evidently.
+    Run Evidently's DataDriftPreset on reference/current,
+    save interactive HTML to out_html, and return drift_score (share of drifted columns).
+    Compatible with modern Evidently 'Snapshot' result object from report.run(...).
     """
-    # Ensure same columns intersection to avoid schema issues
+    # Ensure both datasets have the same schema
     common_cols = [c for c in reference_df.columns if c in current_df.columns]
     ref = reference_df[common_cols].copy()
     cur = current_df[common_cols].copy()
 
-    report = Report(metrics=[DataDriftPreset()])
-    report.run(reference_data=ref, current_data=cur)
-    report.save_html(out_html)
+    # 1) Define a report; 2) run to get the Snapshot; 3) save HTML from the Snapshot
+    report = Report([DataDriftPreset()])
+    snapshot = report.run(current_data=cur, reference_data=ref)  # Snapshot object
+    snapshot.save_html(out_html)
 
-    # Extract share of drifted columns from Evidently result dict
-    r = report.as_dict()
+    # Extract dataset-level drift share from the Snapshot JSON (string) -> dict
+    r = json.loads(snapshot.json())  # <-- parse JSON string to dict
+
     drift_share = 0.0
-    # Traverse to find dataset-level drift info (structure may vary with Evidently version)
     for m in r.get("metrics", []):
-        res = m.get("result", {}) if isinstance(m, dict) else {}
+        res = m.get("result", {})
         ds = res.get("dataset_drift")
         if isinstance(ds, dict) and "share_of_drifted_columns" in ds:
             drift_share = float(ds["share_of_drifted_columns"])
