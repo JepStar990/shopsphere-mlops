@@ -408,6 +408,3 @@ GF_SECURITY_ADMIN_PASSWORD=admin
 
 *   Open‑source components as per their licenses (MLflow, Prefect, Prometheus, Grafana, Evidently, Implicit, LightFM).
 *   Sample code © ShopSphere project team.
-
-***
-
